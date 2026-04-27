@@ -1,0 +1,11 @@
+{
+  "crons": [
+    { "path": "/api/evening_prep", "schedule": "0 17 * * *" },
+    { "path": "/api/morning_run", "schedule": "0 3 * * *" }
+  ],
+  "functions": {
+    "api/evening_prep.py": { "maxDuration": 60 },
+    "api/morning_run.py": { "maxDuration": 60 },
+    "api/telegram_webhook.py": { "maxDuration": 30 }
+  }
+}
