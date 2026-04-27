@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Foody — {{ plan_date }}</title>
+  <style>
+    @media only screen and (max-width: 600px) {
+      .container { width: 100% !important; padding: 0 8px !important; }
+      .header-cell { padding: 20px 20px !important; }
+      .body-cell { padding: 0 8px !important; }
+      .macro-cell { padding: 12px 8px !important; }
+      .macro-value { font-size: 16px !important; }
+      .meal-card { margin-bottom: 8px !important; }
+      .card-header { padding: 10px 12px 6px !important; }
+      .card-body { padding: 0 12px 12px !important; }
+      .badge { display: none !important; }
+      .badge-mobile { display: inline-block !important; }
+      .overview-cell { padding: 12px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+  <!-- Outer wrapper -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#F1F5F9;">
+    <tr>
+      <td style="padding:24px 0;">
+
+        <!-- Main container -->
+        <table class="container" role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- ── Header ── -->
+          <tr>
+            <td class="header-cell" style="background:linear-gradient(135deg,#1E3A5F 0%,#2D5A8E 100%);padding:28px 32px;text-align:left;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td>
+                    <p style="margin:0;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;">🍽 Foody</p>
+                    <p style="margin:4px 0 0;font-size:14px;color:#93C5FD;">Your meal plan for {{ plan_date }}</p>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <p style="margin:0;font-size:28px;line-height:1;">☀️</p>
+                    <p style="margin:4px 0 0;font-size:11px;color:#93C5FD;text-align:right;">Good morning, {{ user_name }}!</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── Summary banner ── -->
+          <tr>
+            <td style="background-color:#EFF6FF;border-left:4px solid #3B82F6;padding:14px 32px;">
+              <p style="margin:0;font-size:14px;color:#1E40AF;line-height:1.6;font-style:italic;">{{ summary }}</p>
+            </td>
+          </tr>
+
+          <!-- ── Macro totals bar ── -->
+          <tr>
+            <td style="padding:0;border-bottom:1px solid #E5E7EB;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td class="macro-cell" style="padding:16px 20px;text-align:center;border-right:1px solid #E5E7EB;">
+                    <p class="macro-value" style="margin:0;font-size:20px;font-weight:800;color:#111827;line-height:1;">{{ total_kcal }}</p>
+                    <p style="margin:3px 0 0;font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">kcal</p>
+                  </td>
+                  <td class="macro-cell" style="padding:16px 20px;text-align:center;border-right:1px solid #E5E7EB;">
+                    <p class="macro-value" style="margin:0;font-size:20px;font-weight:800;color:#059669;line-height:1;">{{ total_protein_g }}g</p>
+                    <p style="margin:3px 0 0;font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">protein</p>
+                  </td>
+                  <td class="macro-cell" style="padding:16px 20px;text-align:center;border-right:1px solid #E5E7EB;">
+                    <p class="macro-value" style="margin:0;font-size:20px;font-weight:800;color:#D97706;line-height:1;">{{ total_carbs_g }}g</p>
+                    <p style="margin:3px 0 0;font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">carbs</p>
+                  </td>
+                  <td class="macro-cell" style="padding:16px 20px;text-align:center;">
+                    <p class="macro-value" style="margin:0;font-size:20px;font-weight:800;color:#7C3AED;line-height:1;">{{ total_fat_g }}g</p>
+                    <p style="margin:3px 0 0;font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">fat</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── Meal cards ── -->
+          <tr>
+            <td class="body-cell" style="padding:16px 24px 8px;">
+
+              {% for meal in meals %}
+              <!-- {{ meal.slot_label }} card -->
+              <table class="meal-card" role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:{{ meal.slot_color }};border-radius:12px;margin-bottom:12px;overflow:hidden;">
+
+                <!-- Card header -->
+                <tr>
+                  <td class="card-header" style="padding:12px 16px 6px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <!-- Slot label + time -->
+                        <td style="vertical-align:middle;">
+                          <span style="font-size:11px;font-weight:700;color:{{ meal.slot_accent }};text-transform:uppercase;letter-spacing:0.07em;">
+                            {{ meal.slot_icon }} {{ meal.slot_label }}
+                          </span>
+                          {% if meal.time %}
+                          <span style="font-size:11px;color:#6B7280;margin-left:6px;">{{ meal.time }}</span>
+                          {% endif %}
+                        </td>
+                        <!-- Macro badges (hidden on mobile) -->
+                        <td style="text-align:right;vertical-align:middle;white-space:nowrap;">
+                          <span class="badge" style="display:inline-block;background-color:rgba(0,0,0,0.07);border-radius:5px;padding:2px 6px;font-size:10px;font-weight:600;color:#374151;">{{ meal.kcal }} kcal</span>
+                          <span class="badge" style="display:inline-block;background-color:rgba(5,150,105,0.12);border-radius:5px;padding:2px 6px;font-size:10px;font-weight:600;color:#065F46;margin-left:3px;">P {{ meal.protein_g }}g</span>
+                          <span class="badge" style="display:inline-block;background-color:rgba(217,119,6,0.12);border-radius:5px;padding:2px 6px;font-size:10px;font-weight:600;color:#92400E;margin-left:3px;">C {{ meal.carbs_g }}g</span>
+                          <span class="badge" style="display:inline-block;background-color:rgba(124,58,237,0.12);border-radius:5px;padding:2px 6px;font-size:10px;font-weight:600;color:#4C1D95;margin-left:3px;">F {{ meal.fat_g }}g</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Card body -->
+                <tr>
+                  <td class="card-body" style="padding:2px 16px 14px;">
+                    <p style="margin:0 0 5px;font-size:16px;font-weight:700;color:#111827;line-height:1.3;">{{ meal.title }}</p>
+                    <p style="margin:0 0 8px;font-size:13px;color:#374151;line-height:1.6;">{{ meal.description }}</p>
+
+                    <!-- Mobile macros (shown only on small screens) -->
+                    <p class="badge-mobile" style="display:none;margin:0 0 6px;font-size:11px;color:#6B7280;">
+                      {{ meal.kcal }} kcal &nbsp;·&nbsp;
+                      P {{ meal.protein_g }}g &nbsp;·&nbsp;
+                      C {{ meal.carbs_g }}g &nbsp;·&nbsp;
+                      F {{ meal.fat_g }}g
+                    </p>
+
+                    {% if meal.rationale %}
+                    <p style="margin:0;font-size:12px;color:#6B7280;font-style:italic;line-height:1.5;">{{ meal.rationale }}</p>
+                    {% endif %}
+
+                    {% if meal.context_tags %}
+                    <p style="margin:6px 0 0;">
+                      {% for tag in meal.context_tags %}
+                      <span style="display:inline-block;background-color:rgba(0,0,0,0.06);border-radius:4px;padding:1px 6px;font-size:10px;color:#4B5563;margin-right:3px;margin-bottom:2px;">{{ tag | replace("_"," ") }}</span>
+                      {% endfor %}
+                    </p>
+                    {% endif %}
+                  </td>
+                </tr>
+
+              </table>
+              {% endfor %}
+
+            </td>
+          </tr>
+
+          <!-- ── Day overview ── -->
+          <tr>
+            <td class="body-cell" style="padding:4px 24px 12px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#F8FAFC;border-radius:12px;">
+                <tr>
+                  <td class="overview-cell" style="padding:16px 20px;">
+                    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.07em;">📋 Nutritional Overview</p>
+                    <p style="margin:0;font-size:13px;color:#4B5563;line-height:1.7;">{{ day_overview }}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── Assumptions box (only when present) ── -->
+          {% if assumptions %}
+          <tr>
+            <td class="body-cell" style="padding:0 24px 12px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#FFFBEB;border-radius:12px;border-left:4px solid #F59E0B;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.06em;">⚠️ Assumptions Applied</p>
+                    <p style="margin:0;font-size:12px;color:#78350F;line-height:1.7;white-space:pre-line;">{{ assumptions }}</p>
+                    <p style="margin:8px 0 0;font-size:11px;color:#A16207;">You can fine-tune these via the Telegram digest next time.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- ── Footer ── -->
+          <tr>
+            <td style="background-color:#F8FAFC;padding:20px 32px;text-align:center;border-top:1px solid #E5E7EB;border-radius:0 0 16px 16px;">
+              <p style="margin:0 0 4px;font-size:12px;color:#9CA3AF;">Generated by <strong style="color:#6B7280;">Foody</strong> · Rate your plan via Telegram to improve future suggestions.</p>
+              <p style="margin:0;font-size:11px;color:#D1D5DB;">Powered by Claude AI</p>
+            </td>
+          </tr>
+
+        </table>
+        <!-- /main container -->
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

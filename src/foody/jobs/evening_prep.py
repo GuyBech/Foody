@@ -29,8 +29,9 @@ from foody.calendar.google_client import fetch_events_for_calendars, parse_event
 from foody.config import settings
 from foody.db.engine import get_session
 from foody.db.models import AgentRun, CalendarEvent, User, UserIntegration
+from foody.db.models import MealPlan
 from foody.db.repositories.clarifications import create_session, set_telegram_message_id
-from foody.telegram.bot import send_error_notification, send_evening_digest
+from foody.telegram.bot import send_error_notification, send_evening_digest, send_feedback_request
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,43 @@ async def _log_agent_run(
 
 
 # ---------------------------------------------------------------------------
+# Feedback helper
+# ---------------------------------------------------------------------------
+
+async def _send_today_feedback_if_needed(user_id: uuid.UUID, chat_id: str) -> None:
+    """
+    If today's meal plan was delivered and hasn't been rated yet,
+    send a star-rating message to the user before the evening digest.
+    """
+    today = date.today()
+    async with get_session() as db:
+        result = await db.execute(
+            select(MealPlan).where(
+                MealPlan.user_id == user_id,
+                MealPlan.plan_date == today,
+                MealPlan.status == "sent",
+                MealPlan.overall_rating.is_(None),
+                MealPlan.feedback_telegram_msg_id.is_(None),
+            )
+        )
+        plan = result.scalar_one_or_none()
+        if plan is None:
+            return
+
+        try:
+            msg_id = await send_feedback_request(
+                chat_id=chat_id,
+                plan_date=today,
+                plan_summary=plan.summary,
+            )
+            plan.feedback_telegram_msg_id = msg_id
+            await db.commit()
+            logger.info("Feedback request sent for today's plan (user %s)", user_id)
+        except Exception:
+            logger.exception("Failed to send feedback request for user %s", user_id)
+
+
+# ---------------------------------------------------------------------------
 # Main job entrypoint
 # ---------------------------------------------------------------------------
 
@@ -310,6 +348,9 @@ async def run_evening_prep(user_id: uuid.UUID) -> None:
     if not user.telegram_chat_id:
         logger.warning("User %s has no Telegram chat ID — cannot send digest", user_id)
         return
+
+    # 0. Ask for feedback on today's plan (if sent and unrated)
+    await _send_today_feedback_if_needed(user_id, user.telegram_chat_id)
 
     # 1. Fetch events from all configured calendars
     try:

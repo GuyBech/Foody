@@ -245,6 +245,13 @@ class MealPlan(Base):
         DateTime(timezone=True), nullable=False, default=_utcnow, server_default=sa.func.now()
     )
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Feedback fields — populated via Telegram rating buttons (migration 002)
+    overall_rating: Mapped[Optional[int]] = mapped_column(
+        SmallInteger,
+        CheckConstraint("overall_rating BETWEEN 1 AND 5", name="ck_meal_plans_overall_rating"),
+    )
+    feedback_notes: Mapped[Optional[str]] = mapped_column(Text)
+    feedback_telegram_msg_id: Mapped[Optional[int]] = mapped_column(Integer)
 
     user: Mapped[User] = relationship(back_populates="meal_plans")
     meals: Mapped[list[Meal]] = relationship(

@@ -205,3 +205,134 @@ CLASSIFICATION_TOOL: dict = {
         },
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Meal Planning output schemas
+# ---------------------------------------------------------------------------
+
+MealSlot = Literal[
+    "breakfast", "morning_snack", "lunch",
+    "pre_workout", "post_workout", "dinner", "evening_snack",
+]
+
+SLOT_LABELS: dict[str, str] = {
+    "breakfast": "Breakfast",
+    "morning_snack": "Morning Snack",
+    "lunch": "Lunch",
+    "pre_workout": "Pre-Workout",
+    "post_workout": "Post-Workout",
+    "dinner": "Dinner",
+    "evening_snack": "Evening Snack",
+}
+
+
+class MealOutput(BaseModel):
+    slot: MealSlot
+    suggested_time: str = Field(description="HH:MM format")
+    title: str
+    description: str = Field(description="What to eat and how to prepare it (2-3 sentences).")
+    kcal: int
+    protein_g: int
+    carbs_g: int
+    fat_g: int
+    rationale: str = Field(description="Why this meal at this time (1 sentence).")
+    context_tags: list[str] = Field(
+        default_factory=list,
+        description="e.g. ['post_workout','quick_prep','high_protein','at_home']",
+    )
+
+
+class MealPlanOutput(BaseModel):
+    summary: str = Field(description="One sentence framing the nutritional theme of the day.")
+    meals: list[MealOutput]
+    total_kcal: int
+    total_protein_g: int
+    total_carbs_g: int
+    total_fat_g: int
+    day_overview: str = Field(description="Key nutritional decisions and their reasoning (2-3 sentences).")
+
+
+MEAL_PLAN_TOOL: dict = {
+    "name": "submit_meal_plan",
+    "description": "Submit the complete daily meal plan with macro-accurate meals timed to the schedule.",
+    "input_schema": {
+        "type": "object",
+        "required": ["summary", "meals", "total_kcal", "total_protein_g", "total_carbs_g", "total_fat_g", "day_overview"],
+        "properties": {
+            "summary": {"type": "string", "description": "One-sentence nutritional theme."},
+            "meals": {
+                "type": "array",
+                "minItems": 3,
+                "items": {
+                    "type": "object",
+                    "required": ["slot", "suggested_time", "title", "description", "kcal", "protein_g", "carbs_g", "fat_g", "rationale"],
+                    "properties": {
+                        "slot": {
+                            "type": "string",
+                            "enum": ["breakfast","morning_snack","lunch","pre_workout","post_workout","dinner","evening_snack"],
+                        },
+                        "suggested_time": {"type": "string", "description": "HH:MM"},
+                        "title": {"type": "string"},
+                        "description": {"type": "string", "description": "What to eat and a brief prep note."},
+                        "kcal": {"type": "integer"},
+                        "protein_g": {"type": "integer"},
+                        "carbs_g": {"type": "integer"},
+                        "fat_g": {"type": "integer"},
+                        "rationale": {"type": "string", "description": "Why this meal at this time."},
+                        "context_tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+            "total_kcal": {"type": "integer"},
+            "total_protein_g": {"type": "integer"},
+            "total_carbs_g": {"type": "integer"},
+            "total_fat_g": {"type": "integer"},
+            "day_overview": {"type": "string", "description": "Key nutritional decisions (2-3 sentences)."},
+        },
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Memory consolidation schemas  (used by memory.py after feedback)
+# ---------------------------------------------------------------------------
+
+class MemoryToAdd(BaseModel):
+    kind: Literal["preference", "constraint", "habit", "observation"]
+    content: str = Field(description="A single, specific, actionable fact about this user's dietary preferences.")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class MemoryUpdateOutput(BaseModel):
+    memories_to_add: list[MemoryToAdd]
+    summary: str = Field(description="1-2 sentence summary of what was learned from this feedback.")
+
+
+MEMORY_UPDATE_TOOL: dict = {
+    "name": "update_dietary_memories",
+    "description": "Extract dietary learnings from a meal plan feedback rating and return structured memory updates.",
+    "input_schema": {
+        "type": "object",
+        "required": ["memories_to_add", "summary"],
+        "properties": {
+            "memories_to_add": {
+                "type": "array",
+                "description": "New facts to add to the user's dietary memory. Keep each entry specific and actionable.",
+                "items": {
+                    "type": "object",
+                    "required": ["kind", "content", "confidence"],
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["preference", "constraint", "habit", "observation"],
+                        },
+                        "content": {"type": "string"},
+                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    },
+                },
+            },
+            "summary": {"type": "string"},
+        },
+    },
+}

@@ -1,17 +1,24 @@
 """
-Inline keyboard builders for the evening clarification digest.
+Inline keyboard builders for the evening digest and meal plan feedback.
 
-Callback data format: q:{sequence}:{answer_code}
-  - yes_no   → answer_code is "y" or "n"
-  - choice   → answer_code is the 0-based index of the chosen option
-
-Max callback_data length is 64 bytes; this format stays well under that limit.
+Callback data formats (both kept well under the 64-byte Telegram limit):
+  Clarification  →  q:{sequence}:{answer_code}
+    - yes_no      answer_code: "y" or "n"
+    - choice      answer_code: 0-based index of chosen option
+  Feedback       →  fb:{YYYY-MM-DD}:{1-5}
+    e.g. fb:2026-04-27:4  (max 19 bytes)
 """
+
+from datetime import date
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from foody.db.models import ClarificationQuestion
 
+
+# ---------------------------------------------------------------------------
+# Clarification keyboard
+# ---------------------------------------------------------------------------
 
 def _cb(sequence: int, answer_code: str) -> str:
     return f"q:{sequence}:{answer_code}"
@@ -61,3 +68,18 @@ def resolve_answer(q: ClarificationQuestion, answer_code: str) -> str:
             return answer_code
 
     return answer_code
+
+
+# ---------------------------------------------------------------------------
+# Feedback keyboard
+# ---------------------------------------------------------------------------
+
+def build_feedback_keyboard(plan_date: date) -> InlineKeyboardMarkup:
+    """Star-rating row for a delivered meal plan. One tap sets overall_rating."""
+    date_str = plan_date.isoformat()
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(label, callback_data=f"fb:{date_str}:{rating}")
+        for rating, label in [
+            (1, "1 ★"), (2, "2 ★"), (3, "3 ★"), (4, "4 ★"), (5, "5 ★"),
+        ]
+    ]])

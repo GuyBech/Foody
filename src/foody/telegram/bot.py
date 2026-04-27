@@ -4,6 +4,7 @@ Telegram Bot facade.
 Responsibilities:
 - Send the evening digest message (single message, inline keyboard, all questions)
 - Edit the digest message in-place when a question is answered
+- Send a standalone feedback rating request for today's meal plan
 - Handle the "all done" terminal state
 
 The Bot instance is created per-call (stateless) so it works in Vercel serverless.
@@ -17,7 +18,7 @@ from telegram import Bot
 
 from foody.config import settings
 from foody.db.models import ClarificationQuestion, ClarificationSession
-from foody.telegram.keyboards import build_digest_keyboard
+from foody.telegram.keyboards import build_digest_keyboard, build_feedback_keyboard
 
 
 def _make_bot() -> Bot:
@@ -88,6 +89,34 @@ async def update_digest_message(
             reply_markup=keyboard,
             parse_mode="HTML",
         )
+
+
+async def send_feedback_request(
+    chat_id: str,
+    plan_date: date,
+    plan_summary: str | None = None,
+) -> int:
+    """
+    Send a standalone star-rating message for today's delivered meal plan.
+    Returns the Telegram message_id (stored in meal_plans.feedback_telegram_msg_id).
+    """
+    lines = [
+        f"⭐ <b>How was today's meal plan?</b>",
+        f"<i>{_format_date(plan_date)}</i>",
+    ]
+    if plan_summary:
+        lines.append(f"\n{plan_summary}")
+    lines.append("\nTap a rating — this helps me improve your future plans.")
+
+    text = "\n".join(lines)
+    async with _make_bot() as bot:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=build_feedback_keyboard(plan_date),
+            parse_mode="HTML",
+        )
+    return msg.message_id
 
 
 async def send_error_notification(chat_id: str, message: str) -> None:
