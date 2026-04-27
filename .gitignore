@@ -1,13 +1,36 @@
 .env
+.env.*
+!.env.example
+
+# Python bytecode
 __pycache__/
 *.pyc
 *.pyo
+
+# Dev tooling caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Build artefacts
 dist/
 build/
 *.egg-info/
+
+# Virtual environments
 .venv/
 venv/
 .python-version
+
+# Local database files
+*.db
+*.sqlite3
+
+# Google OAuth / Service Account credentials — NEVER commit these
+credentials.json
+token.json
+*_credentials.json
+client_secret*.json
+service_account*.json
+google-credentials*.json
+gcp-*.json
