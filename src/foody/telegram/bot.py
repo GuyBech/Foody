@@ -26,7 +26,8 @@ def _make_bot() -> Bot:
 
 
 def _format_date(d: date) -> str:
-    return d.strftime("%A, %B %-d")
+    # Avoid %-d (POSIX-only) / %#d (Windows-only) by formatting the day separately.
+    return f"{d.strftime('%A, %B')} {d.day}"
 
 
 def _question_line(q: ClarificationQuestion, idx: int) -> str:

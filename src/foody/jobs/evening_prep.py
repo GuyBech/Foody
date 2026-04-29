@@ -28,7 +28,7 @@ from foody.agent.schemas import EventClassification
 from foody.calendar.google_client import fetch_events_for_calendars, parse_event_times
 from foody.config import settings
 from foody.db.engine import get_session
-from foody.db.models import AgentRun, CalendarEvent, User, UserIntegration
+from foody.db.models import AgentRun, CalendarEvent, User
 from foody.db.models import MealPlan
 from foody.db.repositories.clarifications import create_session, set_telegram_message_id
 from foody.telegram.bot import send_error_notification, send_evening_digest, send_feedback_request
@@ -160,37 +160,21 @@ def _questions_from_llm_classifications(
 # DB helpers
 # ---------------------------------------------------------------------------
 
-async def _get_user_with_integration(
-    user_id: uuid.UUID,
-) -> tuple[User, UserIntegration] | None:
-    async with get_session() as db:
-        user_result = await db.execute(
-            select(User).where(User.id == user_id)
-        )
-        user = user_result.scalar_one_or_none()
-        if user is None:
-            return None
+async def _get_user(user_id: uuid.UUID) -> User | None:
+    """Fetch the user with profile eager-loaded.
 
-        # Eager-load profile so it's available outside the session
-        from sqlalchemy.orm import selectinload
-        user_result2 = await db.execute(
+    Under the service-account Google auth model (see CLAUDE.md), no
+    UserIntegration row is required.
+    """
+    from sqlalchemy.orm import selectinload
+
+    async with get_session() as db:
+        result = await db.execute(
             select(User)
             .where(User.id == user_id)
             .options(selectinload(User.profile))
         )
-        user = user_result2.scalar_one()
-
-        integration_result = await db.execute(
-            select(UserIntegration).where(
-                UserIntegration.user_id == user_id,
-                UserIntegration.provider == "google_calendar",
-            )
-        )
-        integration = integration_result.scalar_one_or_none()
-        if integration is None:
-            logger.warning("No Google Calendar integration for user %s", user_id)
-            return None
-        return user, integration
+        return result.scalar_one_or_none()
 
 
 async def _upsert_events(
@@ -338,12 +322,10 @@ async def run_evening_prep(user_id: uuid.UUID) -> None:
     logger.info("Evening prep started for user %s", user_id)
     tomorrow = date.today() + timedelta(days=1)
 
-    pair = await _get_user_with_integration(user_id)
-    if pair is None:
-        logger.error("Cannot run evening prep for user %s: missing user or integration", user_id)
+    user = await _get_user(user_id)
+    if user is None:
+        logger.error("Cannot run evening prep for user %s: user not found", user_id)
         return
-
-    user, integration = pair
 
     if not user.telegram_chat_id:
         logger.warning("User %s has no Telegram chat ID — cannot send digest", user_id)
@@ -352,11 +334,9 @@ async def run_evening_prep(user_id: uuid.UUID) -> None:
     # 0. Ask for feedback on today's plan (if sent and unrated)
     await _send_today_feedback_if_needed(user_id, user.telegram_chat_id)
 
-    # 1. Fetch events from all configured calendars
+    # 1. Fetch events from all configured calendars (service-account auth — see CLAUDE.md)
     try:
         raw_events = await fetch_events_for_calendars(
-            access_token=integration.access_token or "",
-            refresh_token=integration.refresh_token or "",
             target_date=tomorrow,
             calendar_ids=settings.calendar_id_list,
         )
@@ -439,3 +419,30 @@ async def run_evening_prep(user_id: uuid.UUID) -> None:
         "Evening digest sent (message_id=%s, %d question(s)) for user %s",
         message_id, len(questions), user_id,
     )
+
+
+def _main() -> None:
+    """CLI entrypoint: `python -m foody.jobs.evening_prep`.
+
+    Reads FOODY_USER_ID from the environment (or the first CLI argument).
+    """
+    import asyncio
+    import os
+    import sys
+
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    raw = os.getenv("FOODY_USER_ID") or (sys.argv[1] if len(sys.argv) > 1 else "")
+    if not raw:
+        raise SystemExit(
+            "FOODY_USER_ID not set. Set it in .env or pass as the first argument."
+        )
+
+    asyncio.run(run_evening_prep(uuid.UUID(raw)))
+
+
+if __name__ == "__main__":
+    _main()

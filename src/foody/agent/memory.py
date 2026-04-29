@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 _FEEDBACK_PROMPT_PATH = Path(__file__).parent / "prompts" / "consolidate_feedback.md"
 
 # Haiku is fast and cheap — perfect for incremental memory updates.
-_CONSOLIDATION_MODEL = "claude-haiku-4-5-20251001"
+_CONSOLIDATION_MODEL = "claude-haiku-4-5"
 
 
 # ---------------------------------------------------------------------------

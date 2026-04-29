@@ -31,13 +31,13 @@ from foody.db.models import CalendarEvent, UserProfile
 logger = logging.getLogger(__name__)
 
 _PLAN_PROMPT_PATH = Path(__file__).parent / "prompts" / "plan_meals.md"
-_PLAN_MODEL = "claude-sonnet-4-6"
+_PLAN_MODEL = "claude-haiku-4-5"
 
-# Pricing per million tokens (Sonnet 4.6)
-_INPUT_PER_MTK = 3.00
-_OUTPUT_PER_MTK = 15.00
-_CACHE_WRITE_PER_MTK = 3.75
-_CACHE_READ_PER_MTK = 0.30
+# Pricing per million tokens (claude-haiku-4-5)
+_INPUT_PER_MTK = 1.00
+_OUTPUT_PER_MTK = 5.00
+_CACHE_WRITE_PER_MTK = 1.25
+_CACHE_READ_PER_MTK = 0.10
 
 
 @dataclass
@@ -176,7 +176,7 @@ async def plan_meals(
         f"### Recent Meal History (avoid repetition)\n{history_block}",
     ])
 
-    day_of_week = plan_date.strftime("%A, %B %-d, %Y")
+    day_of_week = f"{plan_date.strftime('%A, %B')} {plan_date.day}, {plan_date.year}"
     user_message = (
         f"Plan meals for {day_of_week} ({plan_date.isoformat()}).\n\n"
         f"## Today's Schedule\n\n{calendar_block}"

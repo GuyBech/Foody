@@ -1,9 +1,16 @@
+import asyncio
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from foody.config import settings
+
+# psycopg's async driver is incompatible with Windows' default ProactorEventLoop.
+# Set the selector policy before any event loop is created.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 engine = create_async_engine(
     settings.async_database_url,

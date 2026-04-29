@@ -9,8 +9,18 @@ import asyncio
 import os
 import sys
 import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+# Load .env so DEV_TELEGRAM_CHAT_ID and DATABASE_URL are visible to os.getenv
+# and to pydantic-settings.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
 
 from foody.db.engine import get_session
 from foody.db.models import User, UserProfile

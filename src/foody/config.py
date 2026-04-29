@@ -6,8 +6,6 @@ class Settings(BaseSettings):
 
     database_url: str
     anthropic_api_key: str
-    google_oauth_client_id: str
-    google_oauth_client_secret: str
     resend_api_key: str
     telegram_bot_token: str
     telegram_webhook_secret: str = ""
@@ -15,6 +13,13 @@ class Settings(BaseSettings):
     encryption_key: str = ""
     log_level: str = "INFO"
     debug: bool = False
+
+    # Service-account JSON for Google Calendar (see CLAUDE.md). Path is relative
+    # to the project root. The legacy google_oauth_* fields are unused but kept
+    # optional so existing .env files don't break.
+    google_service_account_json: str = "google_credentials.json"
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
 
     # Comma-separated Google Calendar IDs to aggregate.
     # Use "primary" for the main calendar. Add shared/work calendars as needed.

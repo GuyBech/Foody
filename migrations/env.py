@@ -6,6 +6,12 @@ import asyncio
 import os
 import sys
 from logging.config import fileConfig
+from pathlib import Path
+
+# psycopg's async driver doesn't support Windows' default ProactorEventLoop.
+# Switch to SelectorEventLoop on Windows before anything else touches asyncio.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from alembic import context
 from sqlalchemy import pool
@@ -14,6 +20,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Make src/ importable when running alembic from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+# Load .env so DATABASE_URL is available even when alembic is invoked outside
+# of a shell that has exported it.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
 
 from foody.db.models import Base  # noqa: E402 — must come after sys.path patch
 
@@ -28,8 +43,11 @@ target_metadata = Base.metadata
 def _get_url() -> str:
     # Prefer the DATABASE_URL env var (set by Vercel / .env); fall back to alembic.ini
     url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url", "")
-    # Alembic needs a sync driver; psycopg3 works with both postgresql:// and postgresql+psycopg://
-    return url.replace("postgresql+psycopg://", "postgresql://", 1)
+    # Force psycopg3 (async-capable). Plain "postgresql://" defaults to psycopg2,
+    # which we don't depend on.
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
 
 
 def run_migrations_offline() -> None:

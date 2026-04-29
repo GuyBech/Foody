@@ -34,7 +34,7 @@ from foody.telegram.bot import send_error_notification
 
 logger = logging.getLogger(__name__)
 
-_PLAN_MODEL = "claude-sonnet-4-6"
+_PLAN_MODEL = "claude-haiku-4-5"
 
 
 async def run_morning_run(user_id: uuid.UUID) -> None:

@@ -33,4 +33,6 @@ token.json
 client_secret*.json
 service_account*.json
 google-credentials*.json
+google_credentials.json
+foody-agent-*.json
 gcp-*.json

@@ -35,11 +35,11 @@ logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "classify_calendar.md"
 
-# Approximate cost per million tokens for claude-sonnet-4-6 (USD).
+# Approximate cost per million tokens for claude-haiku-4-5 (USD).
 # Used for the agent_runs.cost_usd estimate only — not for billing.
-_INPUT_COST_PER_M = 3.00
-_OUTPUT_COST_PER_M = 15.00
-_CACHE_READ_COST_PER_M = 0.30
+_INPUT_COST_PER_M = 1.00
+_OUTPUT_COST_PER_M = 5.00
+_CACHE_READ_COST_PER_M = 0.10
 
 
 @dataclass
@@ -98,7 +98,7 @@ async def classify_calendar_events(
     events: list[CalendarEvent],
     profile: UserProfile | None,
     plan_date: date,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-haiku-4-5",
 ) -> ClassificationResult:
     """
     Classify all events in a single LLM call and return structured results.
@@ -115,9 +115,11 @@ async def classify_calendar_events(
     system_prompt = _load_system_prompt(profile)
     events_payload = _format_events_for_prompt(events, plan_date)
 
+    # Avoid %-d / %#d (platform-specific) by formatting the day separately.
+    date_str = f"{plan_date.strftime('%A, %B')} {plan_date.day}"
     user_message = (
         f"Please classify the following {len(events)} calendar event(s) "
-        f"for {plan_date.strftime('%A, %B %-d')}.\n\n"
+        f"for {date_str}.\n\n"
         f"{events_payload}"
     )
 

@@ -81,9 +81,10 @@ async def send_meal_plan_email(
         for m in plan.meals
     ]
 
+    plan_date_str = f"{plan_date.strftime('%A, %B')} {plan_date.day}"
     html = template.render(
         user_name=user_name,
-        plan_date=plan_date.strftime("%A, %B %-d"),
+        plan_date=plan_date_str,
         summary=plan.summary,
         day_overview=plan.day_overview,
         meals=meals_with_meta,
@@ -98,7 +99,7 @@ async def send_meal_plan_email(
     params: resend.Emails.SendParams = {
         "from": from_email,
         "to": [to_email],
-        "subject": f"🍽 Your meal plan for {plan_date.strftime('%A, %B %-d')}",
+        "subject": f"🍽 Your meal plan for {plan_date_str}",
         "html": html,
     }
     response = resend.Emails.send(params)
