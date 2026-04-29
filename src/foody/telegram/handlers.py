@@ -15,7 +15,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from telegram import Bot, CallbackQuery, Update
+from telegram import Bot, CallbackQuery, Message, Update
 
 from foody.agent.memory import consolidate_feedback
 from foody.config import settings
@@ -29,7 +29,58 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher
+# Message handler — replies to plain user messages (text / commands).
+# Foody is a scheduled-digest bot, not a chat bot, so we route everything to
+# a small set of canned replies and let the cron jobs do the real work.
+# ---------------------------------------------------------------------------
+
+_WELCOME = (
+    "👋 Hi! I'm <b>Foody</b>.\n\n"
+    "I plan your meals around your calendar. Each evening (~20:00) I'll send "
+    "a digest with a few quick questions about tomorrow's schedule, and each "
+    "morning (~06:00) I'll send your meal plan.\n\n"
+    "You interact with me by tapping the buttons in those messages — I don't "
+    "take free-text commands yet.\n\n"
+    "Use /help to see this message again."
+)
+
+_FALLBACK = (
+    "I work via daily digests, not chat. You'll get an evening digest with "
+    "buttons to answer, then a morning meal plan. Use /help for details."
+)
+
+
+async def handle_message(update: Update) -> None:
+    """Reply to plain incoming messages (text and commands).
+
+    Sends a canned response — Foody is driven by scheduled jobs and inline
+    keyboards, not free-text chat, so anything the user types here just gets
+    a polite explanation of how to use the bot. Handles both fresh and
+    edited messages.
+    """
+    message: Message | None = update.message or update.edited_message
+    if message is None or message.chat is None:
+        return
+
+    text = (message.text or "").strip()
+    chat_id = message.chat.id
+
+    if text.startswith("/start") or text.startswith("/help"):
+        reply = _WELCOME
+    elif not text:
+        # Non-text message (photo, sticker, voice, …) — stay silent rather
+        # than nag. The user gets feedback via the scheduled digest.
+        logger.info("Ignoring non-text message from chat %s", chat_id)
+        return
+    else:
+        reply = _FALLBACK
+
+    async with Bot(token=settings.telegram_bot_token) as bot:
+        await bot.send_message(chat_id=chat_id, text=reply, parse_mode="HTML")
+
+
+# ---------------------------------------------------------------------------
+# Callback query dispatcher
 # ---------------------------------------------------------------------------
 
 async def handle_callback_query(update: Update) -> None:

@@ -46,9 +46,9 @@ try:
     _dbg("imported foody.config.settings — telegram_bot_token configured: %s" % bool(
         settings.telegram_bot_token
     ))
-    from foody.telegram.handlers import handle_callback_query
+    from foody.telegram.handlers import handle_callback_query, handle_message
 
-    _dbg("imported foody.telegram.handlers.handle_callback_query")
+    _dbg("imported foody.telegram.handlers.{handle_callback_query, handle_message}")
 except Exception as exc:
     _dbg(f"Error encountered during module import: {type(exc).__name__}: {exc}")
     traceback.print_exc()
@@ -93,10 +93,14 @@ async def _dispatch(update_data: dict) -> None:
     async with bot:
         update = Update.de_json(update_data, bot)
 
-        if update.callback_query:
+        if update.callback_query is not None:
             _dbg("dispatching to handle_callback_query")
             await handle_callback_query(update)
             _dbg("handle_callback_query returned")
+        elif update.message is not None or update.edited_message is not None:
+            _dbg("dispatching to handle_message")
+            await handle_message(update)
+            _dbg("handle_message returned")
         else:
             _dbg(f"no handler for update — top_level_keys={list(update_data.keys())}")
 
