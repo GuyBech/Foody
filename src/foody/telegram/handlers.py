@@ -213,6 +213,13 @@ async def _handle_feedback_callback(query: CallbackQuery) -> None:
             )
             plan_obj = plan_with_meals.scalar_one_or_none()
             if plan_obj:
+                print(
+                    f"DEBUG: Attempting to call Anthropic — consolidate_feedback "
+                    f"user={user_id} plan={plan_id} rating={rating}",
+                    flush=True,
+                )
                 await consolidate_feedback(user_id=user_id, plan=plan_obj, rating=rating, db=db)
-    except Exception:
+                print("DEBUG: Anthropic consolidate_feedback returned", flush=True)
+    except Exception as exc:
+        print(f"DEBUG: Error encountered: {type(exc).__name__}: {exc}", flush=True)
         logger.exception("Feedback consolidation failed for user %s plan %s", user_id, plan_id)
