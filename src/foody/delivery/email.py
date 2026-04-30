@@ -97,7 +97,9 @@ async def send_meal_plan_email(
             "rationale": m.rationale,
             "context_tags": m.context_tags,
         }
-        for m in plan.meals
+        # Render meals in chronological order of suggested_time. "HH:MM" is
+        # zero-padded so plain string sort is correct; missing times sort last.
+        for m in sorted(plan.meals, key=lambda meal: meal.suggested_time or "99:99")
     ]
 
     plan_date_str = f"{plan_date.strftime('%A, %B')} {plan_date.day}"

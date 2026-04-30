@@ -101,13 +101,23 @@ def _build_profile_block(profile: Optional[UserProfile]) -> str:
     return "\n".join(lines) if lines else "No profile data available."
 
 
+_EMPTY_CALENDAR_DIRECTIVE = (
+    "USER CALENDAR IS EMPTY. THIS IS A STRICT REST DAY. "
+    "DO NOT hallucinate or schedule any workouts. "
+    "DO NOT include 'Pre-Workout' or 'Post-Workout' meals. "
+    "Adjust calories and macros for a sedentary rest day."
+)
+
+
 def _build_calendar_block(
     events: list[CalendarEvent],
     answered_context: dict[str, str],
     assumptions_log: list[str],
 ) -> str:
     if not events:
-        event_lines = ["No calendar events found for today — use standard meal timing defaults."]
+        # Hard rest-day directive — the LLM was hallucinating workouts and
+        # producing pre/post-workout meals on completely empty calendars.
+        event_lines = [_EMPTY_CALENDAR_DIRECTIVE]
     else:
         event_lines = []
         for e in sorted(events, key=lambda x: x.starts_at):

@@ -128,12 +128,18 @@ async def send_error_notification(chat_id: str, message: str) -> None:
 
 
 def _format_meal_plan_text(plan: MealPlanOutput, plan_date: date) -> str:
-    """Build the HTML body for the Telegram meal-plan summary."""
+    """Build the HTML body for the Telegram meal-plan summary.
+
+    Meals are emitted in chronological order of suggested_time, not in the
+    order the LLM produced them. "HH:MM" strings sort lexicographically =
+    chronologically because both halves are zero-padded; meals without a
+    suggested_time fall back to "99:99" so they trail the timed ones.
+    """
     lines = [f"🍽 <b>Foody Meal Plan – {_format_date(plan_date)}</b>"]
     if plan.summary:
         lines.append(f"<i>{plan.summary}</i>")
     lines.append("")
-    for m in plan.meals:
+    for m in sorted(plan.meals, key=lambda meal: meal.suggested_time or "99:99"):
         time_str = f"{m.suggested_time} · " if m.suggested_time else ""
         slot_label = SLOT_LABELS.get(m.slot, m.slot.replace("_", " ").title())
         lines.append(f"<b>{time_str}{slot_label}</b>")
