@@ -148,11 +148,28 @@ def _format_meal_plan_text(plan: MealPlanOutput, plan_date: date) -> str:
     return "\n".join(lines)
 
 
-_EVENING_SUMMARY_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("✅ בול, תכנן לי אוכל", callback_data="plan_all_ok")],
-    [InlineKeyboardButton("❌ בטל אימון ערב", callback_data="cancel_workout")],
-    [InlineKeyboardButton("✍️ יש שינויים אחרים", callback_data="custom_changes")],
-])
+# Keywords that indicate a workout is scheduled. Match is substring,
+# case-insensitive. "אימון" is Hebrew for "workout"/"training" and Hebrew
+# has no case, so .lower() leaves it intact.
+_WORKOUT_HINT_KEYWORDS = ("crossfit", "אימון", "workout", "run")
+
+_BTN_PLAN_ALL_OK = InlineKeyboardButton("✅ בול, תכנן לי אוכל", callback_data="plan_all_ok")
+_BTN_CANCEL_WORKOUT = InlineKeyboardButton("❌ בטל אימון ערב", callback_data="cancel_workout")
+_BTN_CUSTOM_CHANGES = InlineKeyboardButton("✍️ יש שינויים אחרים", callback_data="custom_changes")
+
+
+def _has_workout_hint(calendar_text: str) -> bool:
+    haystack = calendar_text.lower()
+    return any(kw in haystack for kw in _WORKOUT_HINT_KEYWORDS)
+
+
+def _build_evening_summary_keyboard(calendar_text: str) -> InlineKeyboardMarkup:
+    """Show the cancel-workout button only when the calendar mentions one."""
+    rows = [[_BTN_PLAN_ALL_OK]]
+    if _has_workout_hint(calendar_text):
+        rows.append([_BTN_CANCEL_WORKOUT])
+    rows.append([_BTN_CUSTOM_CHANGES])
+    return InlineKeyboardMarkup(rows)
 
 
 async def send_evening_summary(
@@ -163,7 +180,9 @@ async def send_evening_summary(
     """Send the interactive evening "Transparent Calendar" summary.
 
     Combines the pre-formatted calendar and leftovers blocks into a single
-    HTML message and attaches the action keyboard. Returns the Telegram
+    HTML message and attaches the action keyboard. The "❌ בטל אימון ערב"
+    row is only shown when calendar_text mentions a workout-related keyword,
+    so the button doesn't appear on non-workout days. Returns the Telegram
     message_id so the caller can edit/track it later.
     """
     parts = [p for p in (calendar_text, leftovers_text) if p]
@@ -172,11 +191,12 @@ async def send_evening_summary(
     if len(body) > 4000:
         body = body[:3990] + "\n…(truncated)"
 
+    keyboard = _build_evening_summary_keyboard(calendar_text)
     async with _make_bot() as bot:
         msg = await bot.send_message(
             chat_id=chat_id,
             text=body,
-            reply_markup=_EVENING_SUMMARY_KEYBOARD,
+            reply_markup=keyboard,
             parse_mode="HTML",
         )
     return msg.message_id
