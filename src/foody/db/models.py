@@ -84,6 +84,9 @@ class User(Base):
     agent_runs: Mapped[list[AgentRun]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    leftovers: Mapped[list[Leftover]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserProfile(Base):
@@ -287,6 +290,34 @@ class Meal(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
 
     meal_plan: Mapped[MealPlan] = relationship(back_populates="meals")
+
+
+class Leftover(Base):
+    """User-tracked batch-cooking / leftover items available for the LLM to plan around.
+
+    Flexible by design: just a free-text description and an active flag. No portion
+    counting or expiry tracking — the user toggles is_active=False once it's gone.
+    The meal planner reads is_active=True rows when building today's plan.
+    """
+
+    __tablename__ = "leftovers"
+    __table_args__ = (Index("idx_leftovers_user_active", "user_id", "is_active"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    item_description: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa.true()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, server_default=sa.func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="leftovers")
 
 
 class MealLog(Base):

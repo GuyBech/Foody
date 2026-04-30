@@ -336,3 +336,14 @@ MEMORY_UPDATE_TOOL: dict = {
         },
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Leftovers / batch-cooking — read-only context the meal planner consults.
+# Not an LLM tool output (the LLM does not write leftovers); just a typed
+# representation of rows pulled from the leftovers table.
+# ---------------------------------------------------------------------------
+
+class LeftoverItem(BaseModel):
+    item_description: str
+    is_active: bool = True
