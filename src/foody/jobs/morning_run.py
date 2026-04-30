@@ -30,7 +30,7 @@ from foody.db.engine import get_session
 from foody.db.models import AgentRun, CalendarEvent, Meal, MealPlan, User
 from foody.db.repositories.clarifications import apply_assumptions
 from foody.delivery.email import send_meal_plan_email
-from foody.telegram.bot import send_error_notification
+from foody.telegram.bot import send_error_notification, send_meal_plan_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -246,35 +246,55 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
             db=db,
         )
 
-    # ── Step 9: Send email ────────────────────────────────────────────────────
-    try:
-        await send_meal_plan_email(
-            to_email=user.email,
-            user_name=user.full_name or user.email.split("@")[0],
-            plan_date=today,
-            plan=plan_output,
-            assumptions="\n".join(assumptions_log) if assumptions_log else None,
-        )
-    except Exception:
-        logger.exception("Email delivery failed for user %s", user_id)
-        async with get_session() as db:
-            plan = await db.get(MealPlan, meal_plan_id)
-            if plan:
-                plan.status = "generated"  # generated but not delivered
-                await db.commit()
-        if user.telegram_chat_id:
-            await send_error_notification(
-                user.telegram_chat_id,
-                "Your meal plan is ready but couldn't be emailed. Check your email settings.",
-            )
-        return
+    # ── Step 9: Send email (non-blocking — never raises) ─────────────────────
+    email_id = await send_meal_plan_email(
+        to_email=user.email,
+        user_name=user.full_name or user.email.split("@")[0],
+        plan_date=today,
+        plan=plan_output,
+        assumptions="\n".join(assumptions_log) if assumptions_log else None,
+    )
+    email_delivered = bool(email_id)
 
-    # ── Step 10: Mark as sent ─────────────────────────────────────────────────
+    # ── Step 9b: Telegram fallback if email failed ────────────────────────────
+    # Goal: user receives the plan even when Resend is in sandbox / down.
+    telegram_delivered = False
+    if not email_delivered and user.telegram_chat_id:
+        try:
+            await send_meal_plan_telegram(
+                chat_id=user.telegram_chat_id,
+                plan=plan_output,
+                plan_date=today,
+            )
+            telegram_delivered = True
+            logger.info(
+                "Plan delivered via Telegram fallback for user %s (email failed)",
+                user_id,
+            )
+        except Exception:
+            logger.exception(
+                "Both email AND Telegram fallback failed for user %s", user_id,
+            )
+
+    # ── Step 10: Mark as sent / generated based on what got through ──────────
     async with get_session() as db:
         plan = await db.get(MealPlan, meal_plan_id)
         if plan:
-            plan.status = "sent"
-            plan.sent_at = datetime.now(timezone.utc)
+            if email_delivered or telegram_delivered:
+                plan.status = "sent"
+                plan.sent_at = datetime.now(timezone.utc)
+            else:
+                plan.status = "generated"  # nothing reached the user
             await db.commit()
 
-    logger.info("Morning run complete for user %s — plan sent to %s", user_id, user.email)
+    if email_delivered:
+        logger.info("Morning run complete for user %s — plan emailed to %s",
+                    user_id, user.email)
+    elif telegram_delivered:
+        logger.info("Morning run complete for user %s — plan sent via Telegram",
+                    user_id)
+    else:
+        logger.warning(
+            "Morning run finished for user %s but plan was NOT delivered "
+            "via email or Telegram", user_id,
+        )

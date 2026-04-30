@@ -50,6 +50,13 @@ _SLOT_ICONS: dict[str, str] = {
 }
 
 
+# Resend sandbox: while the domain is unverified, only this address can receive
+# mail when sending from onboarding@resend.dev. Hardcoding here lets dev keep
+# working without a verified domain. Remove once a real sender domain is set up.
+_RESEND_SANDBOX_SENDER = "onboarding@resend.dev"
+_RESEND_SANDBOX_RECIPIENT = "guy3519@gmail.com"
+
+
 async def send_meal_plan_email(
     *,
     to_email: str,
@@ -59,7 +66,19 @@ async def send_meal_plan_email(
     assumptions: str | None = None,
     from_email: str = "onboarding@resend.dev",
 ) -> str:
-    """Render the meal plan HTML template and deliver via Resend. Returns the Resend email ID."""
+    """Render the meal plan HTML template and deliver via Resend.
+
+    Returns the Resend email ID on success, or an empty string if delivery
+    failed. The function never raises — Resend errors are logged and
+    swallowed so the caller (morning_run) can fall back to other channels.
+    """
+    if from_email == _RESEND_SANDBOX_SENDER and to_email != _RESEND_SANDBOX_RECIPIENT:
+        logger.warning(
+            "Resend sandbox: overriding recipient %s -> %s (sender is %s)",
+            to_email, _RESEND_SANDBOX_RECIPIENT, from_email,
+        )
+        to_email = _RESEND_SANDBOX_RECIPIENT
+
     template = _JINJA_ENV.get_template("morning_plan.html")
 
     meals_with_meta = [
@@ -102,7 +121,19 @@ async def send_meal_plan_email(
         "subject": f"🍽 Your meal plan for {plan_date_str}",
         "html": html,
     }
-    response = resend.Emails.send(params)
+    try:
+        response = resend.Emails.send(params)
+    except Exception as exc:
+        # Resend "sandbox" rejections (testing@resend.dev, unverified domain,
+        # rate limit, etc.) must NOT crash the morning run — the caller has
+        # a Telegram fallback to deliver the plan.
+        logger.error(
+            "Resend delivery failed for %s on %s: %s — falling through, plan "
+            "will be delivered via Telegram instead.",
+            to_email, plan_date, exc,
+        )
+        return ""
+
     email_id = response.get("id", "") if isinstance(response, dict) else getattr(response, "id", "")
     logger.info("Email delivered to %s for %s (resend_id=%s)", to_email, plan_date, email_id)
     return str(email_id)

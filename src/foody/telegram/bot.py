@@ -16,6 +16,7 @@ from datetime import date
 
 from telegram import Bot
 
+from foody.agent.schemas import SLOT_LABELS, MealPlanOutput
 from foody.config import settings
 from foody.db.models import ClarificationQuestion, ClarificationSession
 from foody.telegram.keyboards import build_digest_keyboard, build_feedback_keyboard
@@ -124,3 +125,43 @@ async def send_error_notification(chat_id: str, message: str) -> None:
     """Notify the user of an agent error (used by cron jobs)."""
     async with _make_bot() as bot:
         await bot.send_message(chat_id=chat_id, text=f"⚠️ Foody error: {message}")
+
+
+def _format_meal_plan_text(plan: MealPlanOutput, plan_date: date) -> str:
+    """Build the HTML body for the Telegram meal-plan summary."""
+    lines = [f"🍽 <b>Foody Meal Plan – {_format_date(plan_date)}</b>"]
+    if plan.summary:
+        lines.append(f"<i>{plan.summary}</i>")
+    lines.append("")
+    for m in plan.meals:
+        time_str = f"{m.suggested_time} · " if m.suggested_time else ""
+        slot_label = SLOT_LABELS.get(m.slot, m.slot.replace("_", " ").title())
+        lines.append(f"<b>{time_str}{slot_label}</b>")
+        lines.append(f"  {m.title} — {m.kcal} kcal")
+        if m.description:
+            lines.append(f"  <i>{m.description}</i>")
+    lines.append("")
+    lines.append(
+        f"<b>Daily total:</b> {plan.total_kcal} kcal · "
+        f"P {plan.total_protein_g}g · C {plan.total_carbs_g}g · F {plan.total_fat_g}g"
+    )
+    return "\n".join(lines)
+
+
+async def send_meal_plan_telegram(
+    chat_id: str,
+    plan: MealPlanOutput,
+    plan_date: date,
+) -> int:
+    """Send the day's meal plan to Telegram (used as fallback when email fails).
+
+    Returns the Telegram message_id. May raise if Telegram itself is down —
+    that's still better than silently dropping the plan.
+    """
+    text = _format_meal_plan_text(plan, plan_date)
+    # Telegram caps text messages at 4096 chars — truncate just in case.
+    if len(text) > 4000:
+        text = text[:3990] + "\n…(truncated)"
+    async with _make_bot() as bot:
+        msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+    return msg.message_id
