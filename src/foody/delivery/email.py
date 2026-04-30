@@ -57,7 +57,7 @@ async def send_meal_plan_email(
     plan_date: date,
     plan: MealPlanOutput,
     assumptions: str | None = None,
-    from_email: str = "Foody <plans@foody.app>",
+    from_email: str = "onboarding@resend.dev",
 ) -> str:
     """Render the meal plan HTML template and deliver via Resend. Returns the Resend email ID."""
     template = _JINJA_ENV.get_template("morning_plan.html")
