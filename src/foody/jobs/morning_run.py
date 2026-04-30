@@ -246,7 +246,11 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
             db=db,
         )
 
-    # ── Step 9: Send email (non-blocking — never raises) ─────────────────────
+    # ── Step 9: Send via BOTH channels (independent, non-blocking) ───────────
+    # Email and Telegram are now run in parallel-equivalent fashion: each is
+    # attempted regardless of the other's outcome, so the user always gets
+    # the plan on Telegram even when Resend is delivering. The run is
+    # considered successful as long as at least one channel succeeds.
     email_id = await send_meal_plan_email(
         to_email=user.email,
         user_name=user.full_name or user.email.split("@")[0],
@@ -256,10 +260,8 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
     )
     email_delivered = bool(email_id)
 
-    # ── Step 9b: Telegram fallback if email failed ────────────────────────────
-    # Goal: user receives the plan even when Resend is in sandbox / down.
     telegram_delivered = False
-    if not email_delivered and user.telegram_chat_id:
+    if user.telegram_chat_id:
         try:
             await send_meal_plan_telegram(
                 chat_id=user.telegram_chat_id,
@@ -267,14 +269,13 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
                 plan_date=today,
             )
             telegram_delivered = True
-            logger.info(
-                "Plan delivered via Telegram fallback for user %s (email failed)",
-                user_id,
-            )
         except Exception:
-            logger.exception(
-                "Both email AND Telegram fallback failed for user %s", user_id,
-            )
+            logger.exception("Telegram delivery failed for user %s", user_id)
+    else:
+        logger.warning(
+            "User %s has no telegram_chat_id — skipping Telegram delivery",
+            user_id,
+        )
 
     # ── Step 10: Mark as sent / generated based on what got through ──────────
     async with get_session() as db:
@@ -287,12 +288,17 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
                 plan.status = "generated"  # nothing reached the user
             await db.commit()
 
+    channels = []
     if email_delivered:
-        logger.info("Morning run complete for user %s — plan emailed to %s",
-                    user_id, user.email)
-    elif telegram_delivered:
-        logger.info("Morning run complete for user %s — plan sent via Telegram",
-                    user_id)
+        channels.append(f"email:{user.email}")
+    if telegram_delivered:
+        channels.append("telegram")
+
+    if channels:
+        logger.info(
+            "Morning run complete for user %s — plan delivered via %s",
+            user_id, " + ".join(channels),
+        )
     else:
         logger.warning(
             "Morning run finished for user %s but plan was NOT delivered "

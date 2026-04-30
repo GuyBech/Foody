@@ -24,10 +24,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import anthropic
 
 from foody.agent.schemas import CLASSIFICATION_TOOL, ClassificationBatch, EventClassification
+
+# Calendar events come from the DB in UTC; the LLM reasons about local meal
+# timing, so render strings in Israel time.
+_LOCAL_TZ = ZoneInfo("Asia/Jerusalem")
 from foody.config import settings
 from foody.db.models import CalendarEvent, UserProfile
 
@@ -86,8 +91,14 @@ def _format_events_for_prompt(events: list[CalendarEvent], plan_date: date) -> s
                 "title": e.title or "(no title)",
                 "description": (e.description or "")[:300],  # truncate long descriptions
                 "location": e.location,
-                "starts_at": e.starts_at.strftime("%H:%M") if not e.is_all_day else "all-day",
-                "ends_at": e.ends_at.strftime("%H:%M") if not e.is_all_day else "all-day",
+                "starts_at": (
+                    e.starts_at.astimezone(_LOCAL_TZ).strftime("%H:%M")
+                    if not e.is_all_day else "all-day"
+                ),
+                "ends_at": (
+                    e.ends_at.astimezone(_LOCAL_TZ).strftime("%H:%M")
+                    if not e.is_all_day else "all-day"
+                ),
                 "is_all_day": e.is_all_day,
             }
         )

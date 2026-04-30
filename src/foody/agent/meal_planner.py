@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import anthropic
 from pydantic import ValidationError
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 _PLAN_PROMPT_PATH = Path(__file__).parent / "prompts" / "plan_meals.md"
 _PLAN_MODEL = "claude-haiku-4-5"
 _MAX_ATTEMPTS = 3  # 1 initial + 2 self-correction retries
+
+# Calendar events are stored in UTC; the LLM reasons about meal timing relative
+# to the user's local schedule, so render times in Israel time.
+_LOCAL_TZ = ZoneInfo("Asia/Jerusalem")
 
 # Pricing per million tokens (claude-haiku-4-5)
 _INPUT_PER_MTK = 1.00
@@ -106,8 +111,10 @@ def _build_calendar_block(
     else:
         event_lines = []
         for e in sorted(events, key=lambda x: x.starts_at):
-            start = e.starts_at.strftime("%H:%M")
-            end = e.ends_at.strftime("%H:%M")
+            # DB times are UTC — convert to local before display so the LLM
+            # sees "19:30 workout" instead of the UTC equivalent.
+            start = e.starts_at.astimezone(_LOCAL_TZ).strftime("%H:%M")
+            end = e.ends_at.astimezone(_LOCAL_TZ).strftime("%H:%M")
             category = e.event_category or "unknown"
             intensity_str = f", intensity={e.intensity}" if e.intensity else ""
             location_str = f", at_home={e.is_at_home}" if e.is_at_home is not None else ""

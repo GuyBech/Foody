@@ -19,6 +19,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+# Calendar events are stored in UTC; questions shown to the user must use
+# local time so "Your 19:30 session…" reads correctly.
+_LOCAL_TZ = ZoneInfo("Asia/Jerusalem")
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -83,7 +88,7 @@ def _build_questions_rule_based(events: list[CalendarEvent]) -> list[QuestionDra
         if event.is_all_day:
             continue
         title = event.title or "Untitled"
-        time_str = event.starts_at.strftime("%H:%M")
+        time_str = event.starts_at.astimezone(_LOCAL_TZ).strftime("%H:%M")
         duration_min = int((event.ends_at - event.starts_at).total_seconds() / 60)
 
         if event.event_category == "workout" and event.intensity is None:
