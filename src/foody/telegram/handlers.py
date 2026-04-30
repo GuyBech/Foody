@@ -11,7 +11,8 @@ Called from api/telegram_webhook.py for every incoming Update.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -22,10 +23,38 @@ from foody.config import settings
 from foody.db.engine import get_session
 from foody.db.models import ClarificationSession, MealPlan, User
 from foody.db.repositories.clarifications import record_answer
+from foody.jobs.plan_generation import generate_and_deliver_plan
 from foody.telegram.bot import update_digest_message
 from foody.telegram.keyboards import resolve_answer
 
 logger = logging.getLogger(__name__)
+
+_LOCAL_TZ = ZoneInfo("Asia/Jerusalem")
+
+# Conversational states (User.current_state). NULL = idle.
+_STATE_WAITING_FOR_CHANGES = "WAITING_FOR_CHANGES"
+
+
+def _tomorrow_local() -> date:
+    """Return tomorrow in Asia/Jerusalem regardless of the server's clock."""
+    return (datetime.now(tz=_LOCAL_TZ) + timedelta(days=1)).date()
+
+
+async def _get_user_by_telegram_chat(chat_id: str) -> User | None:
+    async with get_session() as db:
+        result = await db.execute(
+            select(User).where(User.telegram_chat_id == chat_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def _set_user_state(user_id, state: str | None) -> None:
+    async with get_session() as db:
+        user = await db.get(User, user_id)
+        if user is None:
+            return
+        user.current_state = state
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -51,12 +80,14 @@ _FALLBACK = (
 
 
 async def handle_message(update: Update) -> None:
-    """Reply to plain incoming messages (text and commands).
+    """Handle plain incoming messages.
 
-    Sends a canned response — Foody is driven by scheduled jobs and inline
-    keyboards, not free-text chat, so anything the user types here just gets
-    a polite explanation of how to use the bot. Handles both fresh and
-    edited messages.
+    Two modes:
+      1. If the user is in state WAITING_FOR_CHANGES (set by tapping
+         "✍️ יש שינויים אחרים"), the next text message is treated as a
+         meal-planner override. We trigger plan generation, deliver, and
+         clear the state. Slash-commands are exempt — they cancel the wait.
+      2. Otherwise: canned welcome / fallback replies.
     """
     message: Message | None = update.message or update.edited_message
     if message is None or message.chat is None:
@@ -65,13 +96,51 @@ async def handle_message(update: Update) -> None:
     text = (message.text or "").strip()
     chat_id = message.chat.id
 
-    if text.startswith("/start") or text.startswith("/help"):
-        reply = _WELCOME
-    elif not text:
-        # Non-text message (photo, sticker, voice, …) — stay silent rather
-        # than nag. The user gets feedback via the scheduled digest.
+    if not text:
         logger.info("Ignoring non-text message from chat %s", chat_id)
         return
+
+    user = await _get_user_by_telegram_chat(str(chat_id))
+    is_command = text.startswith("/")
+
+    # ── Mode 1: free-text intake while waiting for changes ──────────────────
+    if user is not None and user.current_state == _STATE_WAITING_FOR_CHANGES and not is_command:
+        await _set_user_state(user.id, None)  # clear before slow work
+        try:
+            async with Bot(token=settings.telegram_bot_token) as bot:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"קיבלתי. מתכנן עם השינויים: <i>{text}</i>",
+                    parse_mode="HTML",
+                )
+        except Exception:
+            logger.exception("Failed to send acknowledgement before planning")
+
+        try:
+            await generate_and_deliver_plan(
+                user_id=user.id,
+                plan_date=_tomorrow_local(),
+                override_text=text,
+            )
+        except Exception:
+            logger.exception("Plan generation from custom_changes failed")
+            try:
+                async with Bot(token=settings.telegram_bot_token) as bot:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="הייתה תקלה. נסה שוב או הקלד /start.",
+                    )
+            except Exception:
+                logger.exception("Could not even send the error message")
+        return
+
+    # If a slash command arrives while waiting, treat it as cancelling the wait.
+    if user is not None and user.current_state == _STATE_WAITING_FOR_CHANGES and is_command:
+        await _set_user_state(user.id, None)
+
+    # ── Mode 2: canned replies ───────────────────────────────────────────────
+    if text.startswith("/start") or text.startswith("/help"):
+        reply = _WELCOME
     else:
         reply = _FALLBACK
 
@@ -109,22 +178,67 @@ async def handle_callback_query(update: Update) -> None:
 
 _EVENING_SUMMARY_ACTIONS = {"plan_all_ok", "cancel_workout", "custom_changes"}
 
-_EVENING_SUMMARY_ACK = {
-    "plan_all_ok": "מתחיל לתכנן 🍽",
-    "cancel_workout": "בוטל ✓",
-    "custom_changes": "כתבי לי בהודעה את השינויים ✍️",
-}
+_CANCEL_WORKOUT_OVERRIDE = (
+    "USER OVERRIDE: The evening workout/CrossFit is CANCELLED for this day. "
+    "Do NOT include heavy pre-workout or post-workout nutrition for any "
+    "evening workout. Treat the evening as a low-activity period."
+)
+
+_CUSTOM_CHANGES_PROMPT = "מה השתנה בלוז או במקרר? (פשוט הקלד את השינוי)"
 
 
 async def _handle_evening_summary_callback(query: CallbackQuery) -> None:
     data = query.data
-    user_ref = str(query.from_user.id) if query.from_user else "unknown"
-    logger.info("Evening summary callback: data=%s telegram_user=%s", data, user_ref)
-    print(
-        f"DEBUG: evening_summary_callback data={data} user={user_ref}",
-        flush=True,
-    )
-    await query.answer(_EVENING_SUMMARY_ACK.get(data, "התקבל"))
+    telegram_chat_id = str(query.from_user.id) if query.from_user else None
+    logger.info("Evening summary callback: data=%s telegram_user=%s", data, telegram_chat_id)
+
+    if telegram_chat_id is None:
+        await query.answer("התקבל")
+        return
+
+    user = await _get_user_by_telegram_chat(telegram_chat_id)
+    if user is None:
+        await query.answer("חשבון לא מזוהה.")
+        return
+
+    if data == "plan_all_ok":
+        await query.answer("מתחיל לתכנן 🍽")
+        try:
+            await generate_and_deliver_plan(
+                user_id=user.id,
+                plan_date=_tomorrow_local(),
+            )
+        except Exception:
+            logger.exception("plan_all_ok generation failed for user %s", user.id)
+
+    elif data == "cancel_workout":
+        await query.answer("ביטלתי את האימון 💪")
+        try:
+            await generate_and_deliver_plan(
+                user_id=user.id,
+                plan_date=_tomorrow_local(),
+                override_text=_CANCEL_WORKOUT_OVERRIDE,
+            )
+        except Exception:
+            logger.exception("cancel_workout generation failed for user %s", user.id)
+
+    elif data == "custom_changes":
+        await query.answer("כתבי לי בהודעה את השינויים ✍️")
+        await _set_user_state(user.id, _STATE_WAITING_FOR_CHANGES)
+        try:
+            async with Bot(token=settings.telegram_bot_token) as bot:
+                await bot.send_message(
+                    chat_id=telegram_chat_id,
+                    text=_CUSTOM_CHANGES_PROMPT,
+                )
+        except Exception:
+            logger.exception("Failed to send custom_changes prompt")
+            # Roll back the state so the user isn't stuck waiting for a
+            # prompt they never got.
+            await _set_user_state(user.id, None)
+
+    else:
+        await query.answer("התקבל")
 
 
 # ---------------------------------------------------------------------------

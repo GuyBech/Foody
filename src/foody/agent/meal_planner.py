@@ -177,6 +177,7 @@ async def plan_meals(
     dietary_profile: str,
     meal_history: list[str],
     leftovers: list[Leftover] | None = None,
+    override_text: str | None = None,
     model: str = _PLAN_MODEL,
 ) -> MealPlanResult:
     """
@@ -198,13 +199,23 @@ async def plan_meals(
     calendar_block = _build_calendar_block(events, answered_context, assumptions_log)
     leftovers_block = _build_leftovers_block(leftovers or [])
 
-    dynamic_context = "\n\n".join([
+    dynamic_sections = [
         "## Dynamic User Context",
         f"### User Profile\n{profile_block}",
         f"### Learned Dietary Profile\n{dietary_profile}",
         f"### Recent Meal History (avoid repetition)\n{history_block}",
         f"### Available Leftovers / Batch-Cooked Items\n{leftovers_block}",
-    ])
+    ]
+    if override_text and override_text.strip():
+        # Highest-priority directive — overrides any contradicting context above.
+        dynamic_sections.append(
+            "### USER OVERRIDE — HIGHEST PRIORITY\n"
+            "The user has explicitly told us the following. It supersedes any "
+            "schedule, intensity, or default assumption derived from the calendar "
+            "or learned profile above:\n\n"
+            f"{override_text.strip()}"
+        )
+    dynamic_context = "\n\n".join(dynamic_sections)
 
     day_of_week = f"{plan_date.strftime('%A, %B')} {plan_date.day}, {plan_date.year}"
     user_message = (

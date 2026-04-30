@@ -52,6 +52,10 @@ class User(Base):
     locale: Mapped[str] = mapped_column(String(16), nullable=False, server_default="he-IL")
     # Telegram chat ID stored at user level for direct messaging
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(64))
+    # Conversational state for free-text intake from Telegram. NULL = idle.
+    # Currently used: "WAITING_FOR_CHANGES" (set when user taps the
+    # custom_changes button on the evening summary).
+    current_state: Mapped[Optional[str]] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, server_default=sa.func.now()
     )
