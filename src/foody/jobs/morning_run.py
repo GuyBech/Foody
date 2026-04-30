@@ -27,7 +27,7 @@ from foody.agent.meal_planner import MealPlanResult, plan_meals
 from foody.agent.memory import load_dietary_profile, load_meal_history, update_meal_history
 from foody.config import settings
 from foody.db.engine import get_session
-from foody.db.models import AgentRun, CalendarEvent, Meal, MealPlan, User
+from foody.db.models import AgentRun, CalendarEvent, Leftover, Meal, MealPlan, User
 from foody.db.repositories.clarifications import apply_assumptions
 from foody.delivery.email import send_meal_plan_email
 from foody.telegram.bot import send_error_notification, send_meal_plan_telegram
@@ -135,12 +135,20 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
         )
         events: list[CalendarEvent] = list(events_result.scalars().all())
 
+        leftovers_result = await db.execute(
+            select(Leftover).where(
+                Leftover.user_id == user_id,
+                Leftover.is_active.is_(True),
+            )
+        )
+        leftovers: list[Leftover] = list(leftovers_result.scalars().all())
+
         dietary_profile = await load_dietary_profile(user_id, db)
         meal_history = await load_meal_history(user_id, db, days=14)
 
     logger.info(
-        "Context loaded for user %s: %d events, %d history entries",
-        user_id, len(events), len(meal_history),
+        "Context loaded for user %s: %d events, %d leftovers, %d history entries",
+        user_id, len(events), len(leftovers), len(meal_history),
     )
 
     # ── Step 5: LLM meal plan generation ─────────────────────────────────────
@@ -155,6 +163,7 @@ async def run_morning_run(user_id: uuid.UUID) -> None:
             plan_date=today,
             dietary_profile=dietary_profile,
             meal_history=meal_history,
+            leftovers=leftovers,
             model=_PLAN_MODEL,
         )
     except Exception:

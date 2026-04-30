@@ -94,8 +94,37 @@ async def handle_callback_query(update: Update) -> None:
         await _handle_clarification_callback(query)
     elif data.startswith("fb:"):
         await _handle_feedback_callback(query)
+    elif data in _EVENING_SUMMARY_ACTIONS:
+        await _handle_evening_summary_callback(query)
     else:
         await query.answer("Unknown action.")
+
+
+# ---------------------------------------------------------------------------
+# Evening summary handler — interactive flow stub.
+# Logs the action and acknowledges so Telegram's loading spinner stops.
+# Real planning behaviour (kick off plan_meals on plan_all_ok, request free
+# text on custom_changes, etc.) will be wired up in a follow-up.
+# ---------------------------------------------------------------------------
+
+_EVENING_SUMMARY_ACTIONS = {"plan_all_ok", "cancel_workout", "custom_changes"}
+
+_EVENING_SUMMARY_ACK = {
+    "plan_all_ok": "מתחיל לתכנן 🍽",
+    "cancel_workout": "בוטל ✓",
+    "custom_changes": "כתבי לי בהודעה את השינויים ✍️",
+}
+
+
+async def _handle_evening_summary_callback(query: CallbackQuery) -> None:
+    data = query.data
+    user_ref = str(query.from_user.id) if query.from_user else "unknown"
+    logger.info("Evening summary callback: data=%s telegram_user=%s", data, user_ref)
+    print(
+        f"DEBUG: evening_summary_callback data={data} user={user_ref}",
+        flush=True,
+    )
+    await query.answer(_EVENING_SUMMARY_ACK.get(data, "התקבל"))
 
 
 # ---------------------------------------------------------------------------

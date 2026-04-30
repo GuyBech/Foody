@@ -28,7 +28,7 @@ from pydantic import ValidationError
 
 from foody.agent.schemas import MEAL_PLAN_TOOL, MealPlanOutput
 from foody.config import settings
-from foody.db.models import CalendarEvent, UserProfile
+from foody.db.models import CalendarEvent, Leftover, UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,24 @@ def _build_history_block(signatures: list[str]) -> str:
     return "\n".join(f"- {sig}" for sig in signatures[:30])
 
 
+def _build_leftovers_block(leftovers: list[Leftover]) -> str:
+    """Format active leftover/batch-cooking items for the LLM prompt.
+
+    These are food sources the user already has on hand. The planner
+    should prefer building meals around them when reasonable, rather
+    than always proposing fresh recipes.
+    """
+    active = [lo for lo in leftovers if lo.is_active]
+    if not active:
+        return "No batch-cooked items or leftovers on hand — build meals from scratch."
+    lines = [f"- {lo.item_description}" for lo in active]
+    return (
+        "The user has these batch-cooked / leftover items available. "
+        "Prefer integrating them into meals when reasonable rather than "
+        "proposing entirely fresh recipes:\n" + "\n".join(lines)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -158,6 +176,7 @@ async def plan_meals(
     plan_date: date,
     dietary_profile: str,
     meal_history: list[str],
+    leftovers: list[Leftover] | None = None,
     model: str = _PLAN_MODEL,
 ) -> MealPlanResult:
     """
@@ -177,12 +196,14 @@ async def plan_meals(
     profile_block = _build_profile_block(profile)
     history_block = _build_history_block(meal_history)
     calendar_block = _build_calendar_block(events, answered_context, assumptions_log)
+    leftovers_block = _build_leftovers_block(leftovers or [])
 
     dynamic_context = "\n\n".join([
         "## Dynamic User Context",
         f"### User Profile\n{profile_block}",
         f"### Learned Dietary Profile\n{dietary_profile}",
         f"### Recent Meal History (avoid repetition)\n{history_block}",
+        f"### Available Leftovers / Batch-Cooked Items\n{leftovers_block}",
     ])
 
     day_of_week = f"{plan_date.strftime('%A, %B')} {plan_date.day}, {plan_date.year}"

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from foody.agent.schemas import SLOT_LABELS, MealPlanOutput
 from foody.config import settings
@@ -146,6 +146,40 @@ def _format_meal_plan_text(plan: MealPlanOutput, plan_date: date) -> str:
         f"P {plan.total_protein_g}g · C {plan.total_carbs_g}g · F {plan.total_fat_g}g"
     )
     return "\n".join(lines)
+
+
+_EVENING_SUMMARY_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("✅ בול, תכנן לי אוכל", callback_data="plan_all_ok")],
+    [InlineKeyboardButton("❌ בטל אימון ערב", callback_data="cancel_workout")],
+    [InlineKeyboardButton("✍️ יש שינויים אחרים", callback_data="custom_changes")],
+])
+
+
+async def send_evening_summary(
+    chat_id: str,
+    calendar_text: str,
+    leftovers_text: str,
+) -> int:
+    """Send the interactive evening "Transparent Calendar" summary.
+
+    Combines the pre-formatted calendar and leftovers blocks into a single
+    HTML message and attaches the action keyboard. Returns the Telegram
+    message_id so the caller can edit/track it later.
+    """
+    parts = [p for p in (calendar_text, leftovers_text) if p]
+    body = "\n\n".join(parts) if parts else "(אין נתונים להצגה)"
+
+    if len(body) > 4000:
+        body = body[:3990] + "\n…(truncated)"
+
+    async with _make_bot() as bot:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=body,
+            reply_markup=_EVENING_SUMMARY_KEYBOARD,
+            parse_mode="HTML",
+        )
+    return msg.message_id
 
 
 async def send_meal_plan_telegram(
