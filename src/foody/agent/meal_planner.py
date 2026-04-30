@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
+from pydantic import ValidationError
 
 from foody.agent.schemas import MEAL_PLAN_TOOL, MealPlanOutput
 from foody.config import settings
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 _PLAN_PROMPT_PATH = Path(__file__).parent / "prompts" / "plan_meals.md"
 _PLAN_MODEL = "claude-haiku-4-5"
+_MAX_ATTEMPTS = 3  # 1 initial + 2 self-correction retries
 
 # Pricing per million tokens (claude-haiku-4-5)
 _INPUT_PER_MTK = 1.00
@@ -195,48 +197,130 @@ async def plan_meals(
     ]
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    # Conversation state — grows on each retry so the model sees its own
+    # previous (invalid) tool call and the validation error feedback.
+    messages: list[dict] = [{"role": "user", "content": user_message}]
+
+    # Cumulative usage across attempts. The cron paid for every call, so
+    # cost/latency reflect the whole operation, not just the final attempt.
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_read = 0
+    total_cache_write = 0
+
+    last_error: str | None = None
     t0 = time.monotonic()
-    response = await client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system_blocks,
-        tools=[MEAL_PLAN_TOOL],
-        tool_choice={"type": "tool", "name": "submit_meal_plan"},
-        messages=[{"role": "user", "content": user_message}],
-    )
-    latency_ms = int((time.monotonic() - t0) * 1000)
 
-    tool_block = next((b for b in response.content if b.type == "tool_use"), None)
-    if tool_block is None:
-        raise ValueError("Meal planner returned no tool_use block")
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        response = await client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=system_blocks,
+            tools=[MEAL_PLAN_TOOL],
+            tool_choice={"type": "tool", "name": "submit_meal_plan"},
+            messages=messages,
+        )
 
-    output = MealPlanOutput.model_validate(tool_block.input)
+        usage = response.usage
+        total_input_tokens += usage.input_tokens
+        total_output_tokens += usage.output_tokens
+        total_cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
+        total_cache_write += getattr(usage, "cache_creation_input_tokens", 0) or 0
 
-    usage = response.usage
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        tool_block = next((b for b in response.content if b.type == "tool_use"), None)
 
-    logger.info(
-        "Meal plan generated: %d meals, %d kcal | tokens in=%d out=%d "
-        "cache_read=%d cache_write=%d | latency=%dms | cost=$%.4f",
-        len(output.meals), output.total_kcal,
-        usage.input_tokens, usage.output_tokens,
-        cache_read, cache_write,
-        latency_ms,
-        MealPlanResult(
-            output=output, model=model,
-            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+        # Failure mode 1: model returned no tool_use block at all (rare with
+        # forced tool_choice, but defend against it).
+        if tool_block is None:
+            last_error = "Model returned no tool_use block"
+            logger.warning(
+                "Meal plan attempt %d/%d failed: %s",
+                attempt, _MAX_ATTEMPTS, last_error,
+            )
+            if attempt < _MAX_ATTEMPTS:
+                text_echo = "".join(
+                    getattr(b, "text", "") for b in response.content if b.type == "text"
+                ) or "(no content)"
+                messages.append({
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": text_echo}],
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"Validation Error: {last_error}. Please recalculate the "
+                        "missing macro fields and resubmit the tool call."
+                    ),
+                })
+            continue
+
+        # Failure mode 2: tool_use returned but its input fails Pydantic
+        # validation (the original crash — usually missing total_kcal /
+        # total_protein_g / total_carbs_g / total_fat_g).
+        try:
+            output = MealPlanOutput.model_validate(tool_block.input)
+        except ValidationError as exc:
+            last_error = str(exc)
+            logger.warning(
+                "Meal plan attempt %d/%d failed pydantic validation: %s",
+                attempt, _MAX_ATTEMPTS, exc,
+            )
+            if attempt < _MAX_ATTEMPTS:
+                # Echo the assistant's invalid tool_use back so the model
+                # sees its own mistake, then send a tool_result block whose
+                # `content` is the explicit validation-error message the
+                # spec requires.
+                messages.append({
+                    "role": "assistant",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": tool_block.id,
+                        "name": tool_block.name,
+                        "input": tool_block.input,
+                    }],
+                })
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": tool_block.id,
+                        "is_error": True,
+                        "content": (
+                            f"Validation Error: {exc}. Please recalculate the "
+                            "missing macro fields and resubmit the tool call."
+                        ),
+                    }],
+                })
+            continue
+
+        # ── Success ──────────────────────────────────────────────────────
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        result = MealPlanResult(
+            output=output,
+            model=model,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            cache_read_tokens=total_cache_read,
+            cache_write_tokens=total_cache_write,
             latency_ms=latency_ms,
-        ).estimated_cost_usd,
-    )
+        )
 
-    return MealPlanResult(
-        output=output,
-        model=model,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        cache_read_tokens=cache_read,
-        cache_write_tokens=cache_write,
-        latency_ms=latency_ms,
+        logger.info(
+            "Meal plan generated on attempt %d/%d: %d meals, %d kcal | "
+            "tokens in=%d out=%d cache_read=%d cache_write=%d | "
+            "latency=%dms | cost=$%.4f",
+            attempt, _MAX_ATTEMPTS,
+            len(output.meals), output.total_kcal,
+            total_input_tokens, total_output_tokens,
+            total_cache_read, total_cache_write,
+            latency_ms, result.estimated_cost_usd,
+        )
+
+        return result
+
+    # All attempts exhausted.
+    raise ValueError(
+        f"Meal planner failed after {_MAX_ATTEMPTS} attempts. "
+        f"Last error: {last_error}"
     )
